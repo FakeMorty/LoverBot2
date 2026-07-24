@@ -27,23 +27,38 @@ router = Router()
 
 # Состояния анимаций
 active_animations: Dict[str, bool] = {}
-animation_modes: Dict[str, str] = {}
+animation_settings: Dict[str, dict] = {}
 
 # --- ПАРАМЕТРЫ ВИЗУАЛА ---
 COLORS = ["❤️", "💖", "💝", "💗", "💓", "🧡", "💛", "💚", "💙", "💜"]
+PHRASES = ["ЛЮБЛЮ", "ТЕБЯ", "ОЧЕНЬ", "СИЛЬНО", "ТЫ МОЯ", "ЖИЗНЬ", "СЧАСТЬЕ"]
 
-# Идеальное сердце
-HEART_TEMPLATE = (
+# Шаблоны для пульсации
+HEART_BIG = (
     "<code>"
     "  {c}{c}   {c}{c}  \n"
     " {c}{c}{c}{c} {c}{c}{c}{c} \n"
     "{c}{c}{c}{c}{c}{c}{c}{c}{c}{c}{c}\n"
-    "{c}{c} ЛЮБЛЮ {c}{c}\n"
+    "{c}{c} {text} {c}{c}\n"
     " {c}{c}{c}{c}{c}{c}{c}{c}{c} \n"
     "  {c}{c}{c}{c}{c}{c}{c}  \n"
     "   {c}{c}{c}{c}{c}   \n"
     "    {c}{c}{c}    \n"
     "     {c}     "
+    "</code>"
+)
+
+HEART_SMALL = (
+    "<code>"
+    "          \n"
+    "   {c}{c} {c}{c}   \n"
+    "  {c}{c}{c}{c}{c}{c}{c}  \n"
+    "  {c} {text} {c}  \n"
+    "   {c}{c}{c}{c}{c}   \n"
+    "    {c}{c}{c}    \n"
+    "     {c}      \n"
+    "          \n"
+    "          "
     "</code>"
 )
 
@@ -67,11 +82,18 @@ async def safe_edit(iid: str, text: str, kb: InlineKeyboardMarkup = None):
         return False
 
 
-def get_heart_kb(mode="rainbow") -> InlineKeyboardMarkup:
+def get_control_kb(iid: str) -> InlineKeyboardMarkup:
+    settings = animation_settings.get(iid, {"mode": "rainbow", "pulse": True})
+    mode = settings["mode"]
+    pulse = settings["pulse"]
+    
     buttons = [
         [
             InlineKeyboardButton(text="🌈 Радуга" if mode != "rainbow" else "✅ Радуга", callback_data="set_rainbow"),
             InlineKeyboardButton(text="🎲 Хаос" if mode != "chaos" else "✅ Хаос", callback_data="set_chaos")
+        ],
+        [
+            InlineKeyboardButton(text="💓 Пульс: ВКЛ" if pulse else "💤 Пульс: ВЫКЛ", callback_data="toggle_pulse")
         ],
         [InlineKeyboardButton(text="🛑 Остановить", callback_data="stop_heart")]
     ]
@@ -84,11 +106,11 @@ def get_heart_kb(mode="rainbow") -> InlineKeyboardMarkup:
 async def inline_handler(query: types.InlineQuery):
     results = [
         InlineQueryResultArticle(
-            id="h1",
-            title="❤️ Магическое Сердце 2.0",
-            description="Бесконечная анимация с выбором режимов",
-            input_message_content=InputTextMessageContent(message_text="<b>Загрузка магии...</b>", parse_mode="HTML"),
-            reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="Запустить ❤️", callback_data="start_heart")]])
+            id="h2",
+            title="✨ Живое Сердце 3.0",
+            description="Пульсация, градиенты и нежные слова",
+            input_message_content=InputTextMessageContent(message_text="<b>Пробуждение магии...</b>", parse_mode="HTML"),
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="Оживить сердце ✨", callback_data="start_heart")]])
         )
     ]
     await query.answer(results, cache_time=1)
@@ -103,31 +125,65 @@ async def heart_logic(call: types.CallbackQuery):
     await call.answer()
 
     active_animations[iid] = True
-    animation_modes[iid] = "rainbow"
+    animation_settings[iid] = {"mode": "rainbow", "pulse": True}
 
     idx = 0
+    phrase_idx = 0
+    tick = 0
+    
     while active_animations.get(iid):
-        mode = animation_modes.get(iid, "rainbow")
+        settings = animation_settings.get(iid)
+        mode = settings["mode"]
+        pulse = settings["pulse"]
         
+        # 1. Определяем цвет
         if mode == "rainbow":
             color = COLORS[idx % len(COLORS)]
-            idx += 1
         else:
             color = random.choice(COLORS)
+        
+        # 2. Определяем текст (меняем каждые 4 тика)
+        if tick % 4 == 0:
+            current_text = PHRASES[phrase_idx % len(PHRASES)]
+            phrase_idx += 1
+        else:
+            current_text = PHRASES[(phrase_idx - 1) % len(PHRASES)]
 
-        content = HEART_TEMPLATE.format(c=color)
-        if not await safe_edit(iid, content, get_heart_kb(mode)): 
+        # 3. Эффект пульсации (чередуем большой/маленький шаблон)
+        if pulse:
+            template = HEART_BIG if tick % 2 == 0 else HEART_SMALL
+        else:
+            template = HEART_BIG
+            
+        # Центрируем текст внутри сердца (5 символов макс)
+        display_text = current_text.center(5)
+
+        content = template.format(c=color, text=display_text)
+        
+        if not await safe_edit(iid, content, get_control_kb(iid)): 
             break
-        await asyncio.sleep(0.8)
+        
+        idx += 1
+        tick += 1
+        await asyncio.sleep(0.6) # Оптимальная скорость для пульсации
 
 
 @router.callback_query(F.data.startswith("set_"))
 async def set_mode(call: types.CallbackQuery):
     mode = call.data.split("_")[1]
     iid = call.inline_message_id
-    if iid:
-        animation_modes[iid] = mode
+    if iid in animation_settings:
+        animation_settings[iid]["mode"] = mode
     await call.answer(f"Режим: {mode}")
+
+
+@router.callback_query(F.data == "toggle_pulse")
+async def toggle_pulse(call: types.CallbackQuery):
+    iid = call.inline_message_id
+    if iid in animation_settings:
+        animation_settings[iid]["pulse"] = not animation_settings[iid]["pulse"]
+        status = "Включена" if animation_settings[iid]["pulse"] else "Выключена"
+        await call.answer(f"Пульсация: {status}")
 
 
 @router.callback_query(F.data == "stop_heart")
@@ -155,7 +211,7 @@ async def main():
     dp.include_router(router)
     await bot.delete_webhook(drop_pending_updates=True)
     await run_http_server()
-    print(">>> БОТ ЗАПУЩЕН!")
+    print(">>> ЖИВОЕ СЕРДЦЕ ЗАПУЩЕНО!")
     await dp.start_polling(bot)
 
 
