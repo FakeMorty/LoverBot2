@@ -2,6 +2,7 @@ import asyncio
 import sys
 import logging
 import os
+from aiohttp import web
 from dotenv import load_dotenv
 from typing import Dict, List
 from aiogram import Bot, Dispatcher, types, Router, F
@@ -215,10 +216,27 @@ async def restart_quest(call: types.CallbackQuery):
                     get_kb("Взять сердечко ❤️", "step_1"))
 
 
+# --- ВЕБ-СЕРВЕР ДЛЯ RENDER (ЧТОБЫ НЕ ЗАСЫПАЛ) ---
+async def handle(request):
+    return web.Response(text="I'm alive!")
+
+async def run_http_server():
+    app = web.Application()
+    app.router.add_get('/', handle)
+    runner = web.AppRunner(app)
+    await runner.setup()
+    site = web.TCPSite(runner, '0.0.0.0', int(os.getenv("PORT", 8080)))
+    await site.start()
+    print(f">>> Веб-сервер запущен на порту {os.getenv('PORT', 8080)}")
+
 # --- ЗАПУСК ---
 async def main():
     dp.include_router(router)
     await bot.delete_webhook(drop_pending_updates=True)
+    
+    # Запускаем веб-сервер фоном
+    await run_http_server()
+    
     print(">>> ИНЛАЙН-БОТ ВЫСШЕГО КАЧЕСТВА ЗАПУЩЕН!")
     await dp.start_polling(bot)
 
