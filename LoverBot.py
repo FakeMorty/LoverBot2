@@ -1,6 +1,8 @@
 import asyncio
 import sys
 import logging
+import os
+from dotenv import load_dotenv
 from typing import Dict, List
 from aiogram import Bot, Dispatcher, types, Router, F
 from aiogram.exceptions import TelegramBadRequest, TelegramRetryAfter
@@ -11,8 +13,10 @@ from aiogram.types import (
     InlineKeyboardButton
 )
 
+load_dotenv()
+
 # --- НАСТРОЙКИ ---
-API_TOKEN = '8471337212:AAF_JtNRVpqsDCqV-CG-BE8vLKg4bp-NexY'
+API_TOKEN = os.getenv('API_TOKEN', '8471337212:AAF_JtNRVpqsDCqV-CG-BE8vLKg4bp-NexY')
 
 logging.basicConfig(level=logging.INFO)
 bot = Bot(token=API_TOKEN)
