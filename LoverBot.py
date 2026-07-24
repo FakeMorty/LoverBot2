@@ -1,9 +1,10 @@
 import asyncio
 import sys
 import logging
-from typing import Dict, List
+import os
+from aiohttp import web
+from dotenv import load_dotenv
 from aiogram import Bot, Dispatcher, types, Router, F
-from aiogram.exceptions import TelegramBadRequest, TelegramRetryAfter
 from aiogram.types import (
     InlineQueryResultArticle,
     InputTextMessageContent,
@@ -11,218 +12,144 @@ from aiogram.types import (
     InlineKeyboardButton
 )
 
+load_dotenv()
+
 # --- НАСТРОЙКИ ---
-API_TOKEN = '8471337212:AAF_JtNRVpqsDCqV-CG-BE8vLKg4bp-NexY'
+API_TOKEN = os.getenv('API_TOKEN')
+
+if not API_TOKEN:
+    logging.error("ОШИБКА: Токен бота не найден! Установите переменную окружения API_TOKEN.")
+    sys.exit(1)
+# Ссылка будет динамической на основе домена Render
+RENDER_EXTERNAL_URL = os.getenv('RENDER_EXTERNAL_URL', 'https://loverbot2.onrender.com')
 
 logging.basicConfig(level=logging.INFO)
 bot = Bot(token=API_TOKEN)
 dp = Dispatcher()
 router = Router()
 
-# Состояния анимаций (чтобы можно было остановить)
-active_animations: Dict[str, bool] = {}
-
-# --- ПАРАМЕТРЫ ВИЗУАЛА ---
-COLORS = ["❤️", "💖", "💝", "💗", "💓", "🧡", "💛", "💚", "💙", "💜"]
-
-# Идеальное сердце
-HEART_TEMPLATE = (
-    "<code>"
-    "  {c}{c}   {c}{c}  \n"
-    " {c}{c}{c}{c} {c}{c}{c}{c} \n"
-    "{c}{c}{c}{c}{c}{c}{c}{c}{c}{c}{c}\n"
-    "{c}{c} ЛЮБЛЮ {c}{c}\n"
-    " {c}{c}{c}{c}{c}{c}{c}{c}{c} \n"
-    "  {c}{c}{c}{c}{c}{c}{c}  \n"
-    "   {c}{c}{c}{c}{c}   \n"
-    "    {c}{c}{c}    \n"
-    "     {c}     "
-    "</code>"
+# Статичное идеальное сердце (подобранное для Telegram)
+HEART_LAYOUT = (
+    "❤️❤️　　　❤️❤️\n"
+    "❤️❤️❤️❤️　❤️❤️❤️❤️\n"
+    "❤️❤️❤️❤️❤️❤️❤️❤️❤️\n"
+    "　❤️❤️❤️❤️❤️❤️❤️\n"
+    "　　❤️❤️❤️❤️❤️\n"
+    "　　　❤️❤️❤️\n"
+    "　　　　❤️"
 )
-
-
-# --- ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ---
-
-async def safe_edit(iid: str, text: str, kb: InlineKeyboardMarkup = None):
-    """Редактирование сообщения с защитой от всех ошибок."""
-    try:
-        await bot.edit_message_text(
-            text=text, inline_message_id=iid,
-            reply_markup=kb, parse_mode="HTML"
-        )
-        return True
-    except TelegramRetryAfter as e:
-        await asyncio.sleep(e.retry_after)
-        return False
-    except TelegramBadRequest as e:
-        if "message is not modified" in str(e): return True
-        return False
-    except Exception:
-        return False
-
-
-def get_kb(text: str, data: str) -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text=text, callback_data=data)]])
-
-
-# --- INLINE QUERY (ВЫБОР ИЗ ДВУХ ВАРИАНТОВ) ---
 
 @router.inline_query()
 async def inline_handler(query: types.InlineQuery):
+    # Текст сообщения с гиперссылкой
+    message_text = (
+        f"{HEART_LAYOUT}\n\n"
+        f"Ты — моё самое дорогое сокровище. ✨\n"
+        f"<a href='{RENDER_EXTERNAL_URL}'>Нажми сюда, чтобы увидеть сюрприз...</a>"
+    )
+    
     results = [
-        # Вариант 1: Сердце
         InlineQueryResultArticle(
-            id="h1",
-            title="❤️ Магическое Сердце",
-            description="Бесконечная смена цветов (идеальная форма)",
-            input_message_content=InputTextMessageContent(message_text="<b>Загрузка магии...</b>", parse_mode="HTML"),
-            reply_markup=get_kb("Запустить ❤️", "start_heart")
-        ),
-        # Вариант 2: Квест
-        InlineQueryResultArticle(
-            id="q1",
-            title="🐝 Квест: Даша и Пчела",
-            description="Экшен-история с анимациями и ПВО",
-            input_message_content=InputTextMessageContent(message_text="👧 Даша: Привет, любимый! Смотри: ❤️"),
-            reply_markup=get_kb("Взять сердечко ❤️", "step_1")
+            id="static_heart",
+            title="❤️ Послание Любви",
+            description="Отправить сердце и ссылку на сюрприз",
+            input_message_content=InputTextMessageContent(
+                message_text=message_text,
+                parse_mode="HTML"
+            )
         )
     ]
     await query.answer(results, cache_time=1)
 
+# --- ВЕБ-СТРАНИЦА (СЮРПРИЗ) ---
+HTML_PAGE = """
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Для тебя ❤️</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            background-color: #ffeff5;
+            font-family: 'Arial', sans-serif;
+            overflow: hidden;
+            text-align: center;
+        }
+        .container {
+            z-index: 10;
+            padding: 20px;
+            background: white;
+            border-radius: 20px;
+            box-shadow: 0 10px 30px rgba(255, 105, 180, 0.3);
+            animation: fadeIn 2s ease-in;
+        }
+        h1 { color: #ff4d6d; margin-bottom: 10px; }
+        p { color: #590d22; font-size: 1.2em; }
+        .heart {
+            position: absolute;
+            color: #ff4d6d;
+            font-size: 20px;
+            animation: float 5s infinite ease-in;
+            opacity: 0.8;
+        }
+        @keyframes float {
+            0% { transform: translateY(100vh) rotate(0deg); opacity: 1; }
+            100% { transform: translateY(-100px) rotate(360deg); opacity: 0; }
+        }
+        @keyframes fadeIn {
+            from { opacity: 0; transform: scale(0.9); }
+            to { opacity: 1; transform: scale(1); }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>ТЫ МОЯ САМАЯ ЛЮБИМАЯ! ❤️</h1>
+        <p>Я создал этого бота, чтобы напомнить тебе о том, как сильно ты мне дорога.</p>
+        <p>Пусть каждый твой день будет таким же ярким, как эти сердца! ✨</p>
+    </div>
 
-# --- ЛОГИКА СЕРДЦА ---
+    <script>
+        function createHeart() {
+            const heart = document.createElement('div');
+            heart.classList.add('heart');
+            heart.innerHTML = '❤️';
+            heart.style.left = Math.random() * 100 + 'vw';
+            heart.style.animationDuration = Math.random() * 3 + 2 + 's';
+            document.body.appendChild(heart);
+            setTimeout(() => { heart.remove(); }, 5000);
+        }
+        setInterval(createHeart, 300);
+    </script>
+</body>
+</html>
+"""
 
-@router.callback_query(F.data == "start_heart")
-async def heart_logic(call: types.CallbackQuery):
-    iid = call.inline_message_id
-    if not iid or active_animations.get(iid): return
-    await call.answer()
+async def handle(request):
+    return web.Response(text=HTML_PAGE, content_type='text/html')
 
-    active_animations[iid] = True
-    stop_kb = get_kb("🛑 Остановить", "stop_heart")
+async def run_http_server():
+    app = web.Application()
+    app.router.add_get('/', handle)
+    runner = web.AppRunner(app)
+    await runner.setup()
+    await web.TCPSite(runner, '0.0.0.0', int(os.getenv("PORT", 8080))).start()
 
-    idx = 0
-    while active_animations.get(iid):
-        content = HEART_TEMPLATE.format(c=COLORS[idx % len(COLORS)])
-        if not await safe_edit(iid, content, stop_kb): break
-        await asyncio.sleep(0.9)
-        idx += 1
-
-
-@router.callback_query(F.data == "stop_heart")
-async def stop_heart(call: types.CallbackQuery):
-    active_animations[call.inline_message_id] = False
-    await safe_edit(call.inline_message_id, "<b>Сердце замерло... ❤️</b>")
-    await call.answer("Остановлено")
-
-
-# --- ЛОГИКА КВЕСТА (ПОКАДРОВАЯ АНИМАЦИЯ) ---
-
-async def play_frames(iid: str, frames: List[str], speed: float = 1.0):
-    """Проигрывает список кадров с заданной скоростью."""
-    for frame in frames:
-        await safe_edit(iid, frame)
-        await asyncio.sleep(speed)
-
-
-@router.callback_query(F.data == "step_1")
-async def quest_step_1(call: types.CallbackQuery):
-    iid = call.inline_message_id
-    await call.answer()
-
-    # Анимация кражи
-    frames = [
-        "👧 Даша: ❤️\n\n　　　　　　　　🐝💨",
-        "👧 Даша: ❤️\n\n　　　　　🐝💨",
-        "👧 Даша: ОЙ! КТО ЭТО?!\n\n　🐝💨❤️",
-        "👧 Даша: ОНА УКРАЛА СЕРДЦЕ! СТОЙ, БЛЯДОТА!!\n\n🐝💨❤️　　　　　　　"
-    ]
-    await play_frames(iid, frames, 1.1)
-    await safe_edit(iid, "🐝💨❤️\n\n👦 Ты: НЕ ПЕРЕЖИВАЙ, Я ЕЁ ПОЙМАЮ!", get_kb("ПОГНАТЬСЯ! 🏃💨", "step_2"))
-
-
-@router.callback_query(F.data == "step_2")
-async def quest_step_2(call: types.CallbackQuery):
-    iid = call.inline_message_id
-    await call.answer()
-
-    # Анимация погони (бежим влево за пчелой)
-    frames = [
-        "👦 Ты: ВЕРНИ СЕРДЦЕ!\n\n🐝💨❤️　　　　　🏃👦",
-        "👦 Ты: Я БЫСТРЕЕ!\n\n🐝💨❤️　　　🏃👦　",
-        "👦 Ты: ЕЩЁ ЧУТЬ-ЧУТЬ!\n\n🐝💨❤️　🏃👦　　",
-        "👦 Ты: ПОПАЛАСЬ!!\n\n🐝❤️🏃👦　　　　"
-    ]
-    await play_frames(iid, frames, 1.2)
-    await safe_edit(iid, "👦 Ты: Погоди... Ты чего встала?\n\n🐝　　🧍👦", get_kb("Что она делает? 😰", "step_3"))
-
-
-@router.callback_query(F.data == "step_3")
-async def quest_step_3(call: types.CallbackQuery):
-    iid = call.inline_message_id
-    await call.answer()
-
-    # Анимация укуса
-    await safe_edit(iid, "👦 Ты: Ой-ой...\n\n🐝💨💥👦")
-    await asyncio.sleep(1.5)
-    await safe_edit(iid, "👦 Ты: АААААААА!!!\n\n🐝💨　🔥👦🔥")
-    await asyncio.sleep(1.2)
-    await safe_edit(iid, "👦 Ты: *падаю без сил*\n\n🐝💨　　🤕💤")
-    await asyncio.sleep(2.5)
-
-    await safe_edit(iid, "👧 Даша: ТЫ УЖАЛИЛА МОЕГО ПАРНЯ?! ПИЗДА ТЕБЕ ШЛЮХА МОХНАТАЯ!\n\n🐝　　　　　　😡👧📡",
-                    get_kb("Даша, ПВО?! 🛰", "step_4"))
-
-
-@router.callback_query(F.data == "step_4")
-async def quest_step_4(call: types.CallbackQuery):
-    iid = call.inline_message_id
-    await call.answer()
-
-    await safe_edit(iid, "👧 Даша: ЦЕЛЬ ЗАХВАЧЕНА. ОГОНЬ!\n\n🐝🎯　　　　　🛰👧")
-    await asyncio.sleep(2.0)
-
-    # Полет ракеты (справа налево)
-    frames = [
-        "👧 Даша: ПУСК!!\n\n🐝　　　　🚀💨　🛰👧",
-        "👧 Даша: ЛЕТИТ!\n\n🐝　　🚀💨　　　🛰👧",
-        "💥💥💥 Б А - Б А Х ! ! ! 💥💥💥\n\n　　　🔥🐝🔥"
-    ]
-    await play_frames(iid, frames, 1.0)
-    await asyncio.sleep(2.5)
-
-    await safe_edit(iid, "👧 Даша: Всё хорошо, я рядом...\n\n🤕　👧❤️", get_kb("Открыть глаза 👁", "step_5"))
-
-
-@router.callback_query(F.data == "step_5")
-async def quest_step_5(call: types.CallbackQuery):
-    iid = call.inline_message_id
-    await call.answer()
-
-    await safe_edit(iid, "👦 Ты: Даша... Ты лучшая. Спасибо!\n\n👦✨❤️✨👧")
-    await asyncio.sleep(2.5)
-    await safe_edit(iid, "🌹 👩‍❤️‍👨 🌹\n\nКОНЕЦ ИСТОРИИ", get_kb("Сначала 🔄", "restart_quest"))
-
-
-@router.callback_query(F.data == "restart_quest")
-async def restart_quest(call: types.CallbackQuery):
-    # Просто возвращаем к первому шагу квеста
-    await safe_edit(call.inline_message_id, "👧 Даша: Привет, любимый! Смотри: ❤️",
-                    get_kb("Взять сердечко ❤️", "step_1"))
-
-
-# --- ЗАПУСК ---
 async def main():
     dp.include_router(router)
     await bot.delete_webhook(drop_pending_updates=True)
-    print(">>> ИНЛАЙН-БОТ ВЫСШЕГО КАЧЕСТВА ЗАПУЩЕН!")
+    await run_http_server()
     await dp.start_polling(bot)
 
-
 if __name__ == '__main__':
-    if sys.platform == 'win32':
-        asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
     try:
         asyncio.run(main())
-    except KeyboardInterrupt:
+    except:
         pass
