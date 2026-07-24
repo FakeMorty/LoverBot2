@@ -8,4 +8,4 @@ services:
       - .env
     # Если .env нет, можно передать напрямую (но лучше через .env)
     environment:
-      - API_TOKEN=${API_TOKEN:-8471337212:AAF_JtNRVpqsDCqV-CG-BE8vLKg4bp-NexY}
+      - API_TOKEN=${API_TOKEN}

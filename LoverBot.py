@@ -15,7 +15,11 @@ from aiogram.types import (
 load_dotenv()
 
 # --- НАСТРОЙКИ ---
-API_TOKEN = os.getenv('API_TOKEN', '8471337212:AAF_JtNRVpqsDCqV-CG-BE8vLKg4bp-NexY')
+API_TOKEN = os.getenv('API_TOKEN')
+
+if not API_TOKEN:
+    logging.error("ОШИБКА: Токен бота не найден! Установите переменную окружения API_TOKEN.")
+    sys.exit(1)
 # Ссылка будет динамической на основе домена Render
 RENDER_EXTERNAL_URL = os.getenv('RENDER_EXTERNAL_URL', 'https://loverbot2.onrender.com')
 
